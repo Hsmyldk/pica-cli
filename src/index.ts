@@ -6,15 +6,17 @@ import {
     filterEpisodes,
     filterPictures,
     isValidComicId,
+    markSkipped,
     selectChapterByInput
 } from './utils'
+import { selectChapters } from './chapter-prompt'
 import ora from 'ora'
 import Input from '@inquirer/input'
 import Password from '@inquirer/password'
 import Select from '@inquirer/select'
 import Checkbox from '@inquirer/checkbox'
 import ProgressBar from 'progress'
-import { Comic } from './types'
+import { Comic, Episode } from './types'
 import pLimit from 'p-limit'
 import pico from 'picocolors'
 import Table from 'cli-table3'
@@ -193,21 +195,25 @@ async function main() {
 
         log.info(`${title} 查询到 ${pico.cyan(episodes.length)} 个未下载章节`)
 
-        const selectedEpisodes = PICA_DL_CHAPTER
-            ? selectChapterByInput(PICA_DL_CHAPTER, episodes)
-            : PICA_IN_GITHUB
-              ? episodes
-              : await Checkbox({
-                    message: '请选择要下载的章节',
-                    pageSize: 10,
-                    instructions: checkboxHelpTip,
-                    choices: episodes.map((ep) => {
-                        return {
-                            name: ep.title.trim(),
-                            value: ep
-                        }
-                    })
-                })
+        let selectedEpisodes: Episode[]
+        if (PICA_DL_CHAPTER) {
+            selectedEpisodes = selectChapterByInput(PICA_DL_CHAPTER, episodes)
+        } else if (PICA_IN_GITHUB) {
+            selectedEpisodes = episodes
+        } else {
+            const selection = await selectChapters({
+                message: '请选择要下载的章节',
+                episodes
+            })
+            if (!selection) {
+                return
+            }
+            markSkipped(
+                cid,
+                selection.skipped.map((ep) => ep.id)
+            )
+            selectedEpisodes = selection.selected
+        }
 
         for (const ep of selectedEpisodes) {
             spinner.start(`正在获取章节 ${pico.cyan(ep.title)} 的图片列表`)

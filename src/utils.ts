@@ -43,28 +43,68 @@ export function isValidComicId(cid: string) {
     return /^[0-9a-zA-Z]{24}$/.test(cid)
 }
 
+const DONE_FILE = 'comics/done.txt'
+const SKIP_FILE = 'comics/skip.txt'
+
+function readMarks(file: string) {
+    const markPath = resolvePath(file)
+    if (!fs.existsSync(markPath)) {
+        return new Set<string>()
+    }
+    return new Set(
+        fs
+            .readFileSync(markPath, 'utf8')
+            .split(/\n|\r\n/)
+            .filter((x) => x.trim())
+            .map((x) => x.trim())
+    )
+}
+
+function appendMark(file: string, bookId: string, epId: string) {
+    const dir = resolvePath('comics')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(
+        path.join(dir, path.basename(file)),
+        `${bookId}/${epId}\n`,
+        'utf8'
+    )
+}
+
 /**
  * 标记某章节已下载完成，并记录到本地临时文件
  */
 export function mark(bookId: string, epId: string) {
-    const dir = resolvePath('comics')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.appendFileSync(path.join(dir, 'done.txt'), `${bookId}/${epId}\n`, 'utf8')
+    appendMark(DONE_FILE, bookId, epId)
 }
 
 /**
- * 过滤掉已下载的章节
+ * 标记某些章节「不选」，之后会自动跳过（可删除 comics/skip.txt 中的记录恢复）
+ */
+export function markSkipped(bookId: string, epIds: string[]) {
+    if (epIds.length === 0) {
+        return
+    }
+    const marked = readMarks(SKIP_FILE)
+    for (const epId of epIds) {
+        const key = `${bookId}/${epId}`
+        if (marked.has(key)) {
+            continue
+        }
+        appendMark(SKIP_FILE, bookId, epId)
+        marked.add(key)
+    }
+}
+
+/**
+ * 过滤掉已下载的章节和标记「不选」的章节
  */
 export function filterEpisodes(episodes: Episode[], bookId: string) {
-    const donePath = resolvePath('comics/done.txt')
-    if (!fs.existsSync(donePath)) {
-        return episodes
-    }
-    const done = fs
-        .readFileSync(donePath, 'utf8')
-        .split(/\n|\r\n/)
-        .filter((x) => x)
-    return episodes.filter((ep) => !done.includes(`${bookId}/${ep.id}`))
+    const done = readMarks(DONE_FILE)
+    const skip = readMarks(SKIP_FILE)
+    return episodes.filter((ep) => {
+        const key = `${bookId}/${ep.id}`
+        return !done.has(key) && !skip.has(key)
+    })
 }
 
 /**
